@@ -39,9 +39,10 @@ function guardarStorage() {
 function guardarEstadoPartido() {
   // Serializar filas de bateadores (nombre + stats)
   function leerFilas(tablaId) {
-    return [...document.querySelectorAll(`${tablaId} tbody tr`)].map(tr => ({
-      nombre: tr.children[0].textContent,
-      stats:  [...tr.querySelectorAll(".stat")].map(td => parseInt(td.textContent) || 0)
+    return [...document.querySelectorAll(`${tablaId} tbody tr[data-nombre]`)].map(tr => ({
+      nombre: tr.dataset.nombre,
+      stats:  JSON.parse(tr.dataset.stats || "[0,0,0,0,0,0,0,0,0]"),
+      salio:  tr.classList.contains("salio")
     }));
   }
 
@@ -105,20 +106,8 @@ function restaurarEstadoPartido() {
     const tbody = document.querySelector(`${tablaId} tbody`);
     if (!tbody || !filas) return;
     tbody.innerHTML = "";
-    filas.forEach(({ nombre, stats }) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${nombre}</td>` +
-        stats.map(v => `<td class="stat">${v}</td>`).join("") +
-        `<td class="td-inn" data-inn="1"></td>` +
-        `<td class="td-inn" data-inn="2"></td>` +
-        `<td class="td-inn" data-inn="3"></td>` +
-        `<td class="td-inn" data-inn="4"></td>` +
-        `<td class="td-inn" data-inn="5"></td>` +
-        `<td class="td-inn td-inn-extra" data-inn="6"></td>` +
-        `<td class="td-inn td-inn-extra" data-inn="7"></td>` +
-        `<td class="stat-av td-ave">.000</td>` +
-        `<td class="stat-av td-ops">.000</td>` +
-        `<td class="td-acciones"><button class="btn-sustituir" title="Sustituir" onclick="abrirModalSustituir(this)">⇄</button><button onclick="this.closest('tr').remove()">✕</button></td>`;
+    filas.forEach(({ nombre, stats, salio }) => {
+      const tr = crearFilaBateador(nombre, stats, salio);
       tbody.appendChild(tr);
     });
   }
@@ -131,8 +120,8 @@ function restaurarEstadoPartido() {
     const b = estado.bases?.[n];
     if (!b) { bases[n] = null; return; }
     // Buscar la fila del corredor en las tablas restauradas
-    const fila = [...document.querySelectorAll("#tablaVisitante tbody tr, #tablaLocal tbody tr")]
-      .find(tr => tr.children[0].textContent === b.nombre);
+    const fila = [...document.querySelectorAll(`#tablaVisitante ${FILAS_LINEUP}, #tablaLocal ${FILAS_LINEUP}`)]
+      .find(tr => tr.dataset.nombre === b.nombre);
     bases[n] = fila ? { nombre: b.nombre, fila } : null;
   });
 
@@ -151,8 +140,8 @@ function restaurarEstadoPartido() {
 
   // Restaurar bateador seleccionado
   if (estado.jugadorActual && estado.tablaActual) {
-    const fila = [...document.querySelectorAll(`${estado.tablaActual} tbody tr`)]
-      .find(tr => tr.children[0].textContent === estado.jugadorActual);
+    const fila = [...document.querySelectorAll(`${estado.tablaActual} ${FILAS_LINEUP}`)]
+      .find(tr => tr.dataset.nombre === estado.jugadorActual);
     if (fila) seleccionarFila(fila, estado.tablaActual);
   }
 
@@ -277,21 +266,19 @@ function leerPitchersContainer(equipo) {
 // ============================================================
 // JUGADORES EN PARTIDO
 // ============================================================
-function agregarJugadorDesdeLista(equipo) {
-  const select = document.getElementById(
-    equipo === "local" ? "selectLocal" : "selectVisitante"
-  );
-  const nombre = select.value;
-  if (!nombre) return;
+// ============================================================
+// FILA DE BATEADOR — una sola forma de crear filas del lineup
+// tr.dataset.nombre = jugador · tr.dataset.stats = JSON [1B,2B,3B,HR,BB,K,O,CA,CI]
+// tr.classList "salio" = fue sustituido: conserva sus stats pero ya no batea
+// ============================================================
+const FILAS_LINEUP = "tbody tr[data-nombre]:not(.salio)";
+const STATS_VACIAS = () => [0,0,0,0,0,0,0,0,0];
 
-  const tbody = document.querySelector(
-    equipo === "local" ? "#tablaLocal tbody" : "#tablaVisitante tbody"
-  );
-  if ([...tbody.querySelectorAll("tr")].some(tr => tr.children[0].textContent === nombre))
-    return toast("⚠️ Jugador ya está en este juego");
-
+function crearFilaBateador(nombre, stats, salio) {
+  const s = Array.isArray(stats) && stats.length === 9 ? stats : STATS_VACIAS();
   const tr = document.createElement("tr");
   tr.dataset.nombre = nombre;
+  tr.dataset.stats  = JSON.stringify(s);
   tr.innerHTML = `
     <td>${nombre}</td>
     <td class="td-inn" data-inn="1"></td>
@@ -308,6 +295,34 @@ function agregarJugadorDesdeLista(equipo) {
       <button onclick="this.closest('tr').remove()">✕</button>
     </td>
   `;
+  if (salio) marcarFilaSalio(tr);
+  actualizarOPSFila(tr, s);
+  return tr;
+}
+
+// Deja la fila como "salió": gris, sin botones, fuera del orden al bate
+function marcarFilaSalio(tr) {
+  tr.classList.add("salio");
+  tr.classList.remove("activo");
+  tr.title = "Sustituido — conserva sus stats";
+  const acc = tr.querySelector(".td-acciones");
+  if (acc) acc.innerHTML = `<span class="tag-salio">salió</span>`;
+}
+
+function agregarJugadorDesdeLista(equipo) {
+  const select = document.getElementById(
+    equipo === "local" ? "selectLocal" : "selectVisitante"
+  );
+  const nombre = select.value;
+  if (!nombre) return;
+
+  const tbody = document.querySelector(
+    equipo === "local" ? "#tablaLocal tbody" : "#tablaVisitante tbody"
+  );
+  if ([...tbody.querySelectorAll("tr")].some(tr => tr.children[0].textContent === nombre))
+    return toast("⚠️ Jugador ya está en este juego");
+
+  const tr = crearFilaBateador(nombre);
   tbody.appendChild(tr);
   select.value = "";
 }
@@ -446,7 +461,7 @@ let lineupPos = { visitante: 0, local: 0 };
 
 function siguienteBateador() {
   const tablaId = marcador.turno === "visitante" ? "#tablaVisitante" : "#tablaLocal";
-  const filas = [...document.querySelectorAll(`${tablaId} tbody tr[data-nombre]`)];
+  const filas = [...document.querySelectorAll(`${tablaId} ${FILAS_LINEUP}`)];
   if (!filas.length) return;
 
   if (!jugadorSeleccionado || tablaActiva !== tablaId) {
@@ -479,8 +494,8 @@ function nuevoPartidoSinGuardar() {
 }
 
 function iniciarJuego() {
-  const filasVisit = [...document.querySelectorAll("#tablaVisitante tbody tr")];
-  const filasLocal = [...document.querySelectorAll("#tablaLocal tbody tr")];
+  const filasVisit = [...document.querySelectorAll(`#tablaVisitante ${FILAS_LINEUP}`)];
+  const filasLocal = [...document.querySelectorAll(`#tablaLocal ${FILAS_LINEUP}`)];
 
   if (!filasVisit.length) return toast("⚠️ Agrega jugadores al equipo visitante primero");
   if (!filasLocal.length) return toast("⚠️ Agrega jugadores al equipo local primero");
@@ -607,7 +622,7 @@ function cambiarOuts(delta) {
   if (marcador.outs === 3) {
     const equipoSale    = marcador.turno;
     const tablaIdSale   = equipoSale === "visitante" ? "#tablaVisitante" : "#tablaLocal";
-    const filasSale     = [...document.querySelectorAll(`${tablaIdSale} tbody tr[data-nombre]`)];
+    const filasSale     = [...document.querySelectorAll(`${tablaIdSale} ${FILAS_LINEUP}`)];
 
     // Capturar síncronamente ANTES del setTimeout
     const nombreOut = jugadorNombre || jugadorSeleccionado?.dataset?.nombre || "";
@@ -775,7 +790,7 @@ function activarReglaChiller() {
   const { nombre } = ultimoOut;
   // Buscar en la tabla del equipo que batea (mismo equipo que hizo el out antes)
   const tablaEquipo = equipo === "visitante" ? "#tablaVisitante" : "#tablaLocal";
-  const fila = [...document.querySelectorAll(`${tablaEquipo} tbody tr[data-nombre]`)]
+  const fila = [...document.querySelectorAll(`${tablaEquipo} ${FILAS_LINEUP}`)]
     .find(tr => tr.dataset.nombre === nombre);
 
   bases[2] = { nombre, fila: fila || null };
@@ -789,9 +804,9 @@ function activarReglaChiller() {
 // ============================================================
 function iniciarDerby() {
   // Obtener todos los jugadores de cada equipo
-  const jugVisit = [...document.querySelectorAll("#tablaVisitante tbody tr[data-nombre]")]
+  const jugVisit = [...document.querySelectorAll(`#tablaVisitante ${FILAS_LINEUP}`)]
     .map(tr => tr.dataset.nombre);
-  const jugLocal = [...document.querySelectorAll("#tablaLocal tbody tr[data-nombre]")]
+  const jugLocal = [...document.querySelectorAll(`#tablaLocal ${FILAS_LINEUP}`)]
     .map(tr => tr.dataset.nombre);
 
   // Mostrar modal de selección de bateadores antes del derby
@@ -903,7 +918,7 @@ function derbySiguienteBateador() {
 // Cambia al equipo correcto y selecciona el bateador según posición guardada del lineup
 function cambiarEquipoBateador(turno) {
   const tablaId = turno === "visitante" ? "#tablaVisitante" : "#tablaLocal";
-  const filas = [...document.querySelectorAll(`${tablaId} tbody tr[data-nombre]`)];
+  const filas = [...document.querySelectorAll(`${tablaId} ${FILAS_LINEUP}`)];
   if (!filas.length) {
     jugadorSeleccionado = null; jugadorNombre = null; tablaActiva = null;
     const jA = document.getElementById("jugadorActivo");
@@ -969,8 +984,8 @@ function _renderListaPitcher() {
 
   // vs VIS → pitcher del LOCAL | vs LOC → pitcher del VISITANTE
   const tablaId = _equipoSelectorPitcher === "local"
-    ? "#tablaLocal tbody tr"
-    : "#tablaVisitante tbody tr";
+    ? `#tablaLocal ${FILAS_LINEUP}`
+    : `#tablaVisitante ${FILAS_LINEUP}`;
 
   const filas = [...document.querySelectorAll(tablaId)];
 
@@ -981,7 +996,7 @@ function _renderListaPitcher() {
   }
 
   filas.forEach(fila => {
-    const nombre = fila.children[0].textContent;
+    const nombre = fila.dataset.nombre;
     const btn = document.createElement("button");
     btn.className = "modal-jugador-btn";
     const outs = outsPitcher[_equipoSelectorPitcher]?.[nombre] || 0;
@@ -1522,19 +1537,17 @@ let _sustituirFila = null;
 
 function abrirModalSustituir(btn) {
   _sustituirFila = btn.closest("tr");
-  const nombreSale = _sustituirFila.children[0].textContent;
+  const nombreSale = _sustituirFila.dataset.nombre;
   document.getElementById("sustituirSale").textContent = nombreSale;
 
-  // Determinar en qué tabla está
   const enVisitante = _sustituirFila.closest("#tablaVisitante");
-  const tablaId = enVisitante ? "#tablaVisitante" : "#tablaLocal";
   const selectId = enVisitante ? "selectVisitante" : "selectLocal";
 
-  // Jugadores del mismo equipo ya en el partido (para excluir)
-  const yaEnPartido = [...document.querySelectorAll(`${tablaId} tbody tr`)]
-    .map(tr => tr.children[0].textContent);
+  // No pueden entrar quienes ya están en cualquiera de los dos equipos
+  // (incluye a los que salieron → no hay reingreso)
+  const yaEnPartido = [...document.querySelectorAll("#tablaVisitante tbody tr[data-nombre], #tablaLocal tbody tr[data-nombre]")]
+    .map(tr => tr.dataset.nombre);
 
-  // Opciones: todos los jugadores del equipo en el select, que no estén ya en la tabla
   const select = document.getElementById(selectId);
   const opciones = [...select.options]
     .map(o => o.value)
@@ -1558,38 +1571,65 @@ function abrirModalSustituir(btn) {
   document.getElementById("modalSustituir").style.display = "flex";
 }
 
+// El que sale conserva su fila y sus stats (queda como "salió");
+// el que entra va en una fila nueva justo debajo, con stats en cero,
+// y toma su mismo turno en el orden al bate.
 function aplicarSustitucion(nombreEntra) {
   if (!_sustituirFila) return;
+  const filaSale   = _sustituirFila;
+  const nombreSale = filaSale.dataset.nombre;
+  const tablaId    = filaSale.closest("#tablaVisitante") ? "#tablaVisitante" : "#tablaLocal";
+  const equipo     = tablaId === "#tablaVisitante" ? "visitante" : "local";
+  const juegoIniciado = document.getElementById("btnIniciarJuego")?.style.display === "none";
 
-  const nombreSale = _sustituirFila.children[0].textContent;
+  document.getElementById("modalSustituir").style.display = "none";
+  _sustituirFila = null;
 
-  // Guardar stats del jugador que sale (ya acumuladas en la celda)
-  const stats = [..._sustituirFila.querySelectorAll(".stat")]
-    .map(td => parseInt(td.textContent) || 0);
-
-  // Cambiar nombre en la fila — conservar stats acumuladas
-  _sustituirFila.children[0].textContent = nombreEntra;
-
-  // Si el jugador que sale estaba seleccionado, actualizar referencia
-  if (jugadorNombre === nombreSale) {
-    jugadorNombre = nombreEntra;
-    const jA = document.getElementById("jugadorActivo");
-    jA.textContent = `🏏 Al bate: ${nombreEntra}`;
+  // Antes de iniciar el juego no hay stats que cuidar: solo se cambia el nombre
+  if (!juegoIniciado) {
+    filaSale.dataset.nombre = nombreEntra;
+    filaSale.children[0].textContent = nombreEntra;
+    if (pitcherActivo[equipo]?.nombre === nombreSale) {
+      pitcherActivo[equipo] = null;
+      actualizarPitcherActivoUI();
+      toast(`✅ ${nombreSale} → ${nombreEntra} · elige de nuevo el pitcher`);
+      abrirSelectorPitcherEquipo(equipo);
+    } else {
+      toast(`✅ ${nombreSale} → ${nombreEntra}`);
+    }
+    return;
   }
 
-  // Si estaba en una base, actualizar el nombre del corredor
+  const estabaAlBate = jugadorSeleccionado === filaSale;
+  const filaEntra = crearFilaBateador(nombreEntra);
+  filaSale.after(filaEntra);
+  marcarFilaSalio(filaSale);
+
+  // Al bate: el que entra hereda el turno
+  if (estabaAlBate) seleccionarFila(filaEntra, tablaId);
+
+  // Corredor en base: el que entra pasa a correr (sus carreras son suyas)
   [1, 2, 3].forEach(n => {
-    if (bases[n]?.nombre === nombreSale) {
-      bases[n].nombre = nombreEntra;
-      bases[n].fila   = _sustituirFila;
+    if (bases[n] && (bases[n].fila === filaSale || bases[n].nombre === nombreSale)) {
+      bases[n] = { nombre: nombreEntra, fila: filaEntra };
     }
   });
   actualizarBasesUI();
 
-  document.getElementById("modalSustituir").style.display = "none";
-  _sustituirFila = null;
+  // Regla chiller: si el que sale hizo el último out, el corredor de 2B será el que entra
+  const ult = marcador.ultimoOutPorEquipo?.[equipo];
+  if (ult?.nombre === nombreSale) ult.nombre = nombreEntra;
+
   guardarEstadoPartido();
-  toast(`✅ ${nombreSale} → ${nombreEntra}`);
+  actualizarDetallesVisibles();
+
+  // Si el que sale estaba lanzando, hay que elegir nuevo pitcher
+  if (pitcherActivo[equipo]?.nombre === nombreSale) {
+    toast(`✅ ${nombreSale} → ${nombreEntra} · elige el nuevo pitcher`, 3000);
+    abrirSelectorPitcherEquipo(equipo);
+  } else {
+    toast(`✅ ${nombreSale} → ${nombreEntra}`);
+  }
 }
 
 function cerrarModalSustituir() {
@@ -1724,8 +1764,9 @@ function guardarNombreJugador(nombreAnterior) {
 // ============================================================
 function leerBateadores(tablaId) {
   return [...document.querySelectorAll(`${tablaId} tbody tr[data-nombre]`)].map(tr => ({
-    nombre: tr.children[0].textContent,
-    stats:  JSON.parse(tr.dataset.stats || "[0,0,0,0,0,0,0,0,0]")
+    nombre: tr.dataset.nombre,
+    stats:  JSON.parse(tr.dataset.stats || "[0,0,0,0,0,0,0,0,0]"),
+    ...(tr.classList.contains("salio") ? { salio: true } : {})
   }));
 }
 
@@ -2006,39 +2047,13 @@ function editarPartido(idx) {
   document.getElementById("pitchersVsLocalContainer").innerHTML = "";
 
   // Cargar bateadores visitante
-  (p.jugVisitante || []).forEach(({ nombre, stats }) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${nombre}</td>` +
-      stats.map(v => `<td class="stat">${v}</td>`).join("") +
-      `<td class="stat-av td-ave">.000</td>` +
-      `<td class="stat-av td-ops">.000</td>` +
-      `<td class="td-inn" data-inn="1"></td>` +
-      `<td class="td-inn" data-inn="2"></td>` +
-      `<td class="td-inn" data-inn="3"></td>` +
-      `<td class="td-inn" data-inn="4"></td>` +
-      `<td class="td-inn" data-inn="5"></td>` +
-      `<td class="td-inn td-inn-extra" data-inn="6"></td>` +
-      `<td class="td-inn td-inn-extra" data-inn="7"></td>` +
-      `<td class="td-acciones"><button class="btn-sustituir" title="Sustituir" onclick="abrirModalSustituir(this)">⇄</button><button onclick="this.closest('tr').remove()">✕</button></td>`;
-    document.querySelector("#tablaVisitante tbody").appendChild(tr);
+  (p.jugVisitante || []).forEach(({ nombre, stats, salio }) => {
+    document.querySelector("#tablaVisitante tbody").appendChild(crearFilaBateador(nombre, stats, salio));
   });
 
   // Cargar bateadores local
-  (p.jugLocal || []).forEach(({ nombre, stats }) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${nombre}</td>` +
-      stats.map(v => `<td class="stat">${v}</td>`).join("") +
-      `<td class="stat-av td-ave">.000</td>` +
-      `<td class="stat-av td-ops">.000</td>` +
-      `<td class="td-inn" data-inn="1"></td>` +
-      `<td class="td-inn" data-inn="2"></td>` +
-      `<td class="td-inn" data-inn="3"></td>` +
-      `<td class="td-inn" data-inn="4"></td>` +
-      `<td class="td-inn" data-inn="5"></td>` +
-      `<td class="td-inn td-inn-extra" data-inn="6"></td>` +
-      `<td class="td-inn td-inn-extra" data-inn="7"></td>` +
-      `<td class="td-acciones"><button class="btn-sustituir" title="Sustituir" onclick="abrirModalSustituir(this)">⇄</button><button onclick="this.closest('tr').remove()">✕</button></td>`;
-    document.querySelector("#tablaLocal tbody").appendChild(tr);
+  (p.jugLocal || []).forEach(({ nombre, stats, salio }) => {
+    document.querySelector("#tablaLocal tbody").appendChild(crearFilaBateador(nombre, stats, salio));
   });
 
   // Cargar pitchers

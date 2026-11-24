@@ -1923,3 +1923,14 @@ button:active { opacity: 0.75; transform: scale(0.97); }
 }
 
 .sb-mini .sb-mini-winner { color: var(--acento2); background: #f5ede3; }
+
+/* SUSTITUCIÓN — jugador que salió (conserva stats, ya no batea) */
+.game-table tbody tr.salio td { color: #b5b0a8; }
+.game-table tbody tr.salio td:first-child { text-decoration: line-through; }
+.tag-salio {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--suave);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
