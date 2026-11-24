@@ -1,0 +1,14 @@
+{
+  "name": "Liga Cubana de Wiffleball Chile",
+  "short_name": "Wiffleball",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5f0e8",
+  "theme_color": "#2c2a26",
+  "icons": [
+    { "src": "LOGO.png", "sizes": "1024x1024", "type": "image/jpeg", "purpose": "any" }
+  ]
+}
