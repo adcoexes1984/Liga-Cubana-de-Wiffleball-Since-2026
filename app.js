@@ -760,6 +760,12 @@ function mostrarGanador(equipo, cV, cL, momento) {
   document.getElementById("finGanador").textContent  = `🏆 ${equipo}`;
   document.getElementById("finMarcador").textContent = `${cV} — ${cL}`;
   document.getElementById("finMomento").textContent  = `Partido terminado en el ${momento}`;
+  const mvp = rankingMVP([...leerBateadores("#tablaVisitante"), ...leerBateadores("#tablaLocal")])[0];
+  const elMVP = document.getElementById("finMVP");
+  if (elMVP) {
+    elMVP.textContent   = mvp ? textoMVP(mvp) : "";
+    elMVP.style.display = mvp ? "block" : "none";
+  }
   if (modal) modal.style.display = "flex";
 }
 
@@ -2453,12 +2459,87 @@ function cargarStatsPitcheo() {
   });
 }
 
+// ============================================================
+// MVP — mejor OPS (misma lógica que el ranking de Stats → Bateo)
+// Se exige un mínimo de PA; si nadie lo cumple, compiten todos los que batearon.
+// Desempate: más CI, luego más PA.
+// ============================================================
+const MVP_MIN_PA = 3;
+
+// jugadores: [{ nombre, stats }] — si un nombre se repite (varios partidos), se suma
+function rankingMVP(jugadores) {
+  const tot = {};
+  (jugadores || []).forEach(({ nombre, stats }) => {
+    if (!nombre || !Array.isArray(stats)) return;
+    if (!tot[nombre]) tot[nombre] = Array(9).fill(0);
+    stats.forEach((v, i) => tot[nombre][i] += v || 0);
+  });
+  const lista = Object.entries(tot).map(([nombre, s]) => {
+    const av = calcularAvanzadas(s);
+    return { nombre, av, pa: av.VB + av.BB, ops: parseFloat(av.OPS) };
+  }).filter(j => j.pa > 0);
+  const cumplen = lista.filter(j => j.pa >= MVP_MIN_PA);
+  return (cumplen.length ? cumplen : lista)
+    .sort((a, b) => b.ops - a.ops || b.av.CI - a.av.CI || b.pa - a.pa);
+}
+
+// "2-3 · 1 HR · 3 CI"
+function lineaMVP(av) {
+  const partes = [`${av.H}-${av.VB}`];
+  if (av.HR)     partes.push(`${av.HR} HR`);
+  if (av["3B"])  partes.push(`${av["3B"]} 3B`);
+  if (av["2B"])  partes.push(`${av["2B"]} 2B`);
+  if (av.BB)     partes.push(`${av.BB} BB`);
+  if (av.CI)     partes.push(`${av.CI} CI`);
+  if (av.CA)     partes.push(`${av.CA} CA`);
+  return partes.join(" · ");
+}
+
+function textoMVP(j) {
+  return `⭐ MVP: ${j.nombre} · OPS ${j.av.OPS} (${lineaMVP(j.av)})`;
+}
+
+const diaDePartido = p => (p.fecha && p.fecha !== "Sin fecha") ? String(p.fecha).slice(0, 10) : null;
+
+function renderMVPDelDia(cont, dia) {
+  const dias = [...new Set(partidos.map(diaDePartido).filter(Boolean))].sort().reverse();
+  if (!dias.length) return;
+  if (!dia || !dias.includes(dia)) dia = dias[0];
+  const delDia = partidos.filter(p => diaDePartido(p) === dia);
+  const top = rankingMVP(delDia.flatMap(p => p.jugadores || [])).slice(0, 3);
+  const fmtDia = d => d.split("-").reverse().join("-");
+  const medallas = ["🥇", "🥈", "🥉"];
+
+  cont.innerHTML = `
+    <div class="mvp-dia-titulo">
+      <span>⭐ MVP del día</span>
+      <select class="mvp-dia-select">
+        ${dias.map(d => `<option value="${d}" ${d === dia ? "selected" : ""}>${fmtDia(d)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="mvp-dia-sub">${delDia.length} partido${delDia.length === 1 ? "" : "s"} · mejor OPS (mín. ${MVP_MIN_PA} PA)</div>
+    ${top.length ? top.map((j, i) => `
+      <div class="mvp-dia-fila ${i === 0 ? "mvp-dia-primero" : ""}">
+        <span class="mvp-dia-medalla">${medallas[i]}</span>
+        <span class="mvp-dia-nombre">${j.nombre}</span>
+        <span class="mvp-dia-linea">${lineaMVP(j.av)}</span>
+        <span class="mvp-dia-ops">${j.av.OPS}</span>
+      </div>`).join("") : "<p class='empty-msg'>Sin turnos al bate ese día</p>"}
+  `;
+  cont.querySelector(".mvp-dia-select").addEventListener("change", e => renderMVPDelDia(cont, e.target.value));
+}
+
 function cargarStatsPartidos() {
   const div = document.getElementById("listaPartidos");
   div.innerHTML = "";
   if (!partidos.length) {
     div.innerHTML = "<p class='empty-msg'>Sin partidos guardados aún</p>"; return;
   }
+
+  const mvpDia = document.createElement("div");
+  mvpDia.className = "mvp-dia-card";
+  renderMVPDelDia(mvpDia);
+  if (mvpDia.innerHTML) div.appendChild(mvpDia);
 
   // Resumen W/L por equipo — solo mostrar equipos con al menos 1 partido con resultado
   const equipos = {};
@@ -2546,9 +2627,12 @@ function cargarStatsPartidos() {
         </div>`;
     }
 
+    const mvp = rankingMVP(p.jugadores)[0];
+
     card.innerHTML = `
       ${scoreboardHTML}
       ${ganadorLabel ? `<div class="partido-ganador">${ganadorLabel}</div>` : ""}
+      ${mvp ? `<div class="partido-mvp">${textoMVP(mvp)}</div>` : ""}
       <div class="partido-fecha">📅 ${p.fecha} · ${p.jugadores?.length||0} jugadores</div>
       ${pitInfo ? `<div class="partido-pit">${pitInfo}</div>` : ""}
       <div class="partido-acciones">

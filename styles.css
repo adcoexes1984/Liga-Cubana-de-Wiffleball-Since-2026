@@ -1934,3 +1934,61 @@ button:active { opacity: 0.75; transform: scale(0.97); }
   text-transform: uppercase;
   letter-spacing: .03em;
 }
+
+/* MVP — mejor OPS del partido y del día */
+.partido-mvp {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--acento);
+  margin: 0 0 4px;
+}
+.fin-mvp {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--acento);
+  background: #eef0e8;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 16px;
+}
+.mvp-dia-card {
+  background: var(--blanco);
+  margin: 8px 0 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border-left: 3px solid var(--acento);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  font-family: 'Barlow Condensed', sans-serif;
+}
+.mvp-dia-titulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--acento);
+}
+.mvp-dia-select {
+  width: auto;
+  font-size: 13px;
+  padding: 4px 6px;
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  background: var(--crema);
+}
+.mvp-dia-sub { font-size: 11px; color: var(--suave); margin: 2px 0 8px; }
+.mvp-dia-fila {
+  display: grid;
+  grid-template-columns: 24px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid #edeae4;
+  font-size: 13px;
+}
+.mvp-dia-primero .mvp-dia-nombre { font-size: 15px; color: var(--acento); }
+.mvp-dia-nombre { font-weight: 700; color: var(--texto); }
+.mvp-dia-linea  { color: var(--suave); font-size: 12px; }
+.mvp-dia-ops    { font-weight: 700; color: var(--acento3); min-width: 40px; text-align: right; }
