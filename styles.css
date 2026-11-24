@@ -1992,3 +1992,52 @@ button:active { opacity: 0.75; transform: scale(0.97); }
 .mvp-dia-nombre { font-weight: 700; color: var(--texto); }
 .mvp-dia-linea  { color: var(--suave); font-size: 12px; }
 .mvp-dia-ops    { font-weight: 700; color: var(--acento3); min-width: 40px; text-align: right; }
+
+/* TEMPORADAS — selector en Stats y tarjeta en Respaldo */
+.temporada-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 12px 0;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  color: var(--texto);
+}
+.temporada-selector select {
+  flex: 1;
+  font-size: 14px;
+  padding: 6px 8px;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  background: var(--blanco);
+}
+.aviso-temporada {
+  margin: 8px 12px 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #eef0e8;
+  color: var(--acento);
+  font-size: 12px;
+  font-weight: 600;
+}
+.input-temporada {
+  display: block;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 9px 10px;
+  font-size: 14px;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  background: var(--blanco);
+}
+.lista-temporadas { font-size: 13px; color: var(--suave); }
+.temporada-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid #edeae4;
+  color: var(--texto);
+  font-weight: 600;
+}
+.temporada-item span { color: var(--suave); font-weight: 400; font-size: 12px; }

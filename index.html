@@ -263,6 +263,12 @@
 <!-- ===== VISTA STATS ===== -->
 <div id="vistaStats" style="display:none;">
 
+  <div class="temporada-selector">
+    <label for="selectTemporada">📅 Temporada</label>
+    <select id="selectTemporada" onchange="cambiarTemporadaVista(this.value)"></select>
+  </div>
+  <div id="avisoTemporada" class="aviso-temporada" style="display:none"></div>
+
   <div class="tabs-stats">
     <button class="tab-btn active" onclick="mostrarTabStats('bateo',this)">Bateo</button>
     <button class="tab-btn" onclick="mostrarTabStats('pitcheo',this)">Pitcheo</button>
@@ -320,10 +326,19 @@
   </div>
   <div class="card respaldo-card">
     <h3>📥 Importar respaldo</h3>
-    <p>Carga un archivo JSON previamente exportado. <strong>Reemplazará los datos actuales.</strong></p>
+    <p>Carga un archivo JSON. Podrás elegir si <strong>reemplaza la temporada en curso</strong> o se <strong>agrega como temporada anterior</strong>.</p>
     <label class="btn-import-label" for="importFile">Seleccionar archivo JSON</label>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importarJSON(event)">
     <div id="importStatus"></div>
+  </div>
+  <div class="card respaldo-card">
+    <h3>🏁 Temporadas</h3>
+    <p>En curso: <strong id="temporadaEnCurso"></strong></p>
+    <div id="listaTemporadas" class="lista-temporadas"></div>
+    <p style="margin-top:12px">Al cerrar la temporada se descarga un respaldo, la temporada pasa a <strong>Temporadas anteriores</strong> (se consultan en Stats) y la nueva empieza en cero con los mismos jugadores.</p>
+    <input type="text" id="nombreTemporadaCierra" class="input-temporada" placeholder="Nombre de la que cierra (ej: Temporada 2)">
+    <input type="text" id="nombreTemporadaNueva" class="input-temporada" placeholder="Nombre de la nueva (ej: Temporada 3)">
+    <button class="btn-export" onclick="cerrarTemporada()">🏁 Cerrar temporada</button>
   </div>
   <div class="card respaldo-card">
     <h3>🗑️ Resetear datos</h3>
@@ -345,6 +360,19 @@
     <p id="modalConfirmMsg" style="font-size:13px;color:var(--suave);margin:8px 0 20px"></p>
     <button class="modal-ok" id="modalConfirmOk" style="margin-bottom:8px">Confirmar</button>
     <button class="modal-btn-cerrar" id="modalConfirmCancel">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL IMPORTAR -->
+<div id="modalImportar" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="text-align:center">
+    <div class="modal-titulo">📥 Importar respaldo</div>
+    <p id="importResumen" style="font-size:13px;color:var(--suave);margin:8px 0 14px"></p>
+    <button class="modal-ok" onclick="aplicarImportacion('reemplazar')" style="margin-bottom:6px;background:var(--acento2)">Reemplazar temporada en curso</button>
+    <p style="font-size:11px;color:var(--suave);margin:0 0 14px">Se descarga antes un respaldo de lo que hay ahora.</p>
+    <input type="text" id="importNombreTemporada" class="input-temporada" placeholder="Nombre (ej: Temporada 1)">
+    <button class="modal-ok" onclick="aplicarImportacion('anterior')" style="margin-bottom:8px;background:var(--acento)">Agregar como temporada anterior</button>
+    <button class="modal-btn-cerrar" onclick="cerrarModalImportar()">Cancelar</button>
   </div>
 </div>
 

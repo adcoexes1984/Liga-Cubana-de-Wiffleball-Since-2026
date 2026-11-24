@@ -13,6 +13,11 @@ let players  = JSON.parse(localStorage.getItem("players"))  || {};
 // pitchers[nombre] = { totalH, totalHR, totalBB, totalK, totalO, totalER, juegos:[] }
 let pitchers = JSON.parse(localStorage.getItem("pitchers")) || {};
 
+// Temporadas cerradas (solo lectura) y nombre de la temporada en curso
+let temporadas = JSON.parse(localStorage.getItem("temporadas")) || [];
+let nombreTemporadaActual = localStorage.getItem("temporadaActual") || "Temporada actual";
+let temporadaVista = -1; // -1 = temporada actual; si no, índice en "temporadas"
+
 // Reglas de juego: máximo 5 entradas regulares + 2 extras = 7 entradas = 21 outs
 const MAX_OUTS  = 21;  // outs totales por partido
 const BASE_INN  = 5;   // innings base para ERA
@@ -31,6 +36,8 @@ function guardarStorage() {
   localStorage.setItem("partidos", JSON.stringify(partidos));
   localStorage.setItem("players",  JSON.stringify(players));
   localStorage.setItem("pitchers", JSON.stringify(pitchers));
+  localStorage.setItem("temporadas", JSON.stringify(temporadas));
+  localStorage.setItem("temporadaActual", nombreTemporadaActual);
 }
 
 // ============================================================
@@ -178,6 +185,7 @@ function mostrarVista(vista, btn) {
   const mapa = { juego:"vistaJuego", stats:"vistaStats", respaldo:"vistaRespaldo" };
   document.getElementById(mapa[vista]).style.display = "block";
   if (vista === "stats") cargarStats();
+  if (vista === "respaldo") cargarTarjetaTemporadas();
   if (vista === "juego") cargarSelects();
 }
 
@@ -2274,7 +2282,58 @@ function calcularERA(totalO, totalER) {
 // ============================================================
 // CARGAR STATS — TABLAS
 // ============================================================
+// Datos de la temporada que se está mirando en Stats.
+// Las temporadas cerradas son de solo lectura: nunca se escriben en players/pitchers/partidos.
+function datosVista() {
+  const t = temporadaVista >= 0 ? temporadas[temporadaVista] : null;
+  if (!t) return { nombre: nombreTemporadaActual, players, pitchers, partidos, archivada: false };
+  return {
+    nombre: t.nombre, archivada: true, resumida: !!t.resumida,
+    players: t.players || {}, pitchers: t.pitchers || {}, partidos: t.partidos || [],
+    numPartidos: t.numPartidos, record: t.record
+  };
+}
+
+// G/P de cada jugador: desde los partidos, o guardado aparte si la temporada vino de un PDF
+function recordJugadores(d) {
+  if (d.record) return d.record;
+  const rec = {};
+  d.partidos.forEach(p => {
+    if (!p.ganador || p.ganador === "empate") return;
+    const gV = p.ganador === "visitante", gL = p.ganador === "local";
+    (p.jugVisitante || []).forEach(j => { if (!rec[j.nombre]) rec[j.nombre] = { G:0, P:0 }; gV ? rec[j.nombre].G++ : rec[j.nombre].P++; });
+    (p.jugLocal     || []).forEach(j => { if (!rec[j.nombre]) rec[j.nombre] = { G:0, P:0 }; gL ? rec[j.nombre].G++ : rec[j.nombre].P++; });
+  });
+  return rec;
+}
+
+const minPAVista = d => Math.max(5, Math.round(1.72 * ((d.numPartidos ?? d.partidos.length) || 1)));
+
+function cargarSelectorTemporada() {
+  const sel = document.getElementById("selectTemporada");
+  if (!sel) return;
+  if (temporadaVista >= temporadas.length) temporadaVista = -1;
+  sel.innerHTML = `<option value="-1">${nombreTemporadaActual} (en curso)</option>` +
+    temporadas.map((t, i) => ({ t, i })).reverse()
+      .map(({ t, i }) => `<option value="${i}">${t.nombre}${t.cerrada ? " · cerrada " + t.cerrada.split("-").reverse().join("-") : ""}</option>`).join("");
+  sel.value = String(temporadaVista);
+  const aviso = document.getElementById("avisoTemporada");
+  if (aviso) {
+    const d = datosVista();
+    aviso.style.display = d.archivada ? "block" : "none";
+    aviso.textContent = d.resumida
+      ? "📁 Temporada cerrada · solo consulta · cargada desde PDF (sin detalle de partidos)"
+      : "📁 Temporada cerrada · solo consulta";
+  }
+}
+
+function cambiarTemporadaVista(valor) {
+  temporadaVista = parseInt(valor);
+  cargarStats();
+}
+
 function cargarStats() {
+  cargarSelectorTemporada();
   cargarStatsBateo();
   cargarStatsPitcheo();
   cargarStatsPartidos();
@@ -2283,26 +2342,14 @@ function cargarStats() {
 function cargarStatsBateo() {
   const div = document.getElementById("historial");
   div.innerHTML = "";
-  const nombres = Object.keys(players).sort();
+  const d = datosVista();
+  const nombres = Object.keys(d.players).sort();
   if (!nombres.length) {
     div.innerHTML = "<p class='empty-msg'>Sin jugadores aún</p>"; return;
   }
 
-  // Calcular G y P por jugador desde partidos
-  const recordJugador = {}; // { nombre: { G, P } }
-  partidos.forEach(p => {
-    if (!p.ganador || p.ganador === "empate") return;
-    const ganaronVisit = p.ganador === "visitante";
-    const ganaronLocal = p.ganador === "local";
-    (p.jugVisitante || []).forEach(j => {
-      if (!recordJugador[j.nombre]) recordJugador[j.nombre] = { G: 0, P: 0 };
-      ganaronVisit ? recordJugador[j.nombre].G++ : recordJugador[j.nombre].P++;
-    });
-    (p.jugLocal || []).forEach(j => {
-      if (!recordJugador[j.nombre]) recordJugador[j.nombre] = { G: 0, P: 0 };
-      ganaronLocal ? recordJugador[j.nombre].G++ : recordJugador[j.nombre].P++;
-    });
-  });
+  // G y P por jugador
+  const recordJugador = recordJugadores(d); // { nombre: { G, P } }
 
   const wrapper = document.createElement("div");
   wrapper.className = "stats-table-wrapper";
@@ -2326,11 +2373,11 @@ function cargarStatsBateo() {
 
   const tbody = wrapper.querySelector("#tbody-bateo");
 
-  const numPartidos = partidos.length || 1;
-  const MIN_PA = Math.max(5, Math.round(1.72 * numPartidos));
+  const numPartidos = (d.numPartidos ?? d.partidos.length) || 1;
+  const MIN_PA = minPAVista(d);
 
   const datos = nombres.map(nombre => {
-    const av = calcularAvanzadas(players[nombre].total);
+    const av = calcularAvanzadas(d.players[nombre].total);
     const pa = av.VB + av.BB;
     const rec = recordJugador[nombre] || { G: 0, P: 0 };
     return { nombre, av, pa, rec, cumple: pa >= MIN_PA };
@@ -2348,7 +2395,7 @@ function cargarStatsBateo() {
     const paTag = !cumple ? `<span class="pa-insuf" title="Mín. ${MIN_PA} PA (1.72 × ${numPartidos} partidos)">▲</span>` : "";
     tr.innerHTML = `
       <td class="col-nombre-stats">${paTag}${nombre}
-        <button class="btn-eliminar-stat" onclick="eliminarJugadorGlobal('${nombre}')">✕</button>
+        ${d.archivada ? "" : `<button class="btn-eliminar-stat" onclick="eliminarJugadorGlobal('${nombre}')">✕</button>`}
       </td>
       <td class="stat-dest">${pa}</td>
       <td style="color:var(--acento);font-weight:700">${rec.G}</td>
@@ -2368,7 +2415,8 @@ function cargarStatsBateo() {
 function cargarStatsPitcheo() {
   const div = document.getElementById("historialPitcheo");
   div.innerHTML = "";
-  const nombres = Object.keys(pitchers).sort();
+  const d = datosVista();
+  const nombres = Object.keys(d.pitchers).sort();
   if (!nombres.length) {
     div.innerHTML = "<p class='empty-msg'>Aún no hay pitcheos.<br>Designa pitchers al guardar un partido.</p>";
     return;
@@ -2410,7 +2458,7 @@ function cargarStatsPitcheo() {
   }
 
   const todos = nombres.map(nombre => {
-    const p    = pitchers[nombre];
+    const p    = d.pitchers[nombre];
     const s    = calcStats(p);
     return { nombre, p, ...s, cumple: p.totalO >= MIN_OUTS };
   });
@@ -2501,7 +2549,8 @@ function textoMVP(j) {
 
 const diaDePartido = p => (p.fecha && p.fecha !== "Sin fecha") ? String(p.fecha).slice(0, 10) : null;
 
-function renderMVPDelDia(cont, dia) {
+function renderMVPDelDia(cont, dia, lista) {
+  const partidos = lista || datosVista().partidos;
   const dias = [...new Set(partidos.map(diaDePartido).filter(Boolean))].sort().reverse();
   if (!dias.length) return;
   if (!dia || !dias.includes(dia)) dia = dias[0];
@@ -2526,19 +2575,24 @@ function renderMVPDelDia(cont, dia) {
         <span class="mvp-dia-ops">${j.av.OPS}</span>
       </div>`).join("") : "<p class='empty-msg'>Sin turnos al bate ese día</p>"}
   `;
-  cont.querySelector(".mvp-dia-select").addEventListener("change", e => renderMVPDelDia(cont, e.target.value));
+  cont.querySelector(".mvp-dia-select").addEventListener("change", e => renderMVPDelDia(cont, e.target.value, partidos));
 }
 
 function cargarStatsPartidos() {
   const div = document.getElementById("listaPartidos");
   div.innerHTML = "";
+  const d = datosVista();
+  const partidos = d.partidos; // la temporada elegida (las cerradas son solo lectura)
   if (!partidos.length) {
-    div.innerHTML = "<p class='empty-msg'>Sin partidos guardados aún</p>"; return;
+    div.innerHTML = d.resumida
+      ? "<p class='empty-msg'>Esta temporada se cargó desde el PDF de cierre:<br>tiene los totales de bateo y pitcheo, pero no el detalle de cada partido.</p>"
+      : "<p class='empty-msg'>Sin partidos guardados aún</p>";
+    return;
   }
 
   const mvpDia = document.createElement("div");
   mvpDia.className = "mvp-dia-card";
-  renderMVPDelDia(mvpDia);
+  renderMVPDelDia(mvpDia, null, partidos);
   if (mvpDia.innerHTML) div.appendChild(mvpDia);
 
   // Resumen W/L por equipo — solo mostrar equipos con al menos 1 partido con resultado
@@ -2635,11 +2689,11 @@ function cargarStatsPartidos() {
       ${mvp ? `<div class="partido-mvp">${textoMVP(mvp)}</div>` : ""}
       <div class="partido-fecha">📅 ${p.fecha} · ${p.jugadores?.length||0} jugadores</div>
       ${pitInfo ? `<div class="partido-pit">${pitInfo}</div>` : ""}
-      <div class="partido-acciones">
+      ${d.archivada ? "" : `<div class="partido-acciones">
         <button class="btn-eliminar-partido">🗑 Eliminar</button>
-      </div>
+      </div>`}
     `;
-    card.querySelector(".btn-eliminar-partido").addEventListener("click", () => eliminarPartido(realIdx));
+    if (!d.archivada) card.querySelector(".btn-eliminar-partido").addEventListener("click", () => eliminarPartido(realIdx));
     div.appendChild(card);
   });
 }
@@ -2715,6 +2769,8 @@ function eliminarJugadorGlobal(nombre) {
 // ============================================================
 function descargarPDF(tipo) {
   const win = window.open("", "_blank");
+  const d = datosVista();
+  const { players, pitchers, partidos } = d;
   const nombres = tipo === "bateo" ? Object.keys(players).sort() : Object.keys(pitchers).sort();
   if (!nombres.length) { toast("⚠️ Sin datos para exportar"); return; }
 
@@ -2723,15 +2779,8 @@ function descargarPDF(tipo) {
 
   if (tipo === "bateo") {
     headers = `<tr><th>Jugador</th><th>PA</th><th>G</th><th>P</th><th>VB</th><th>H</th><th>1B</th><th>2B</th><th>3B</th><th>HR</th><th>BB</th><th>K</th><th>CA</th><th>CI</th><th>AVE</th><th>OBP</th><th>SLG</th><th>OPS</th></tr>`;
-    const recJug = {};
-    partidos.forEach(p => {
-      if (!p.ganador || p.ganador === "empate") return;
-      const gV = p.ganador === "visitante", gL = p.ganador === "local";
-      (p.jugVisitante||[]).forEach(j => { if (!recJug[j.nombre]) recJug[j.nombre]={G:0,P:0}; gV?recJug[j.nombre].G++:recJug[j.nombre].P++; });
-      (p.jugLocal||[]).forEach(j => { if (!recJug[j.nombre]) recJug[j.nombre]={G:0,P:0}; gL?recJug[j.nombre].G++:recJug[j.nombre].P++; });
-    });
-    const numPartidos = partidos.length || 1;
-    const MIN_PA = Math.max(5, Math.round(1.72 * numPartidos));
+    const recJug = recordJugadores(d);
+    const MIN_PA = minPAVista(d);
     const datos = nombres.map(n => {
       const av = calcularAvanzadas(players[n].total);
       const pa = av.VB + av.BB;
@@ -2794,7 +2843,7 @@ function descargarPDF(tipo) {
       .footer { margin-top: 14px; font-size: 10px; color: #aaa; text-align: right; }
     </style></head><body>
     <h1>Liga Cubana de Wiffleball Chile · Since 2026</h1>
-    <h2>${titulo} · ${fecha}</h2>
+    <h2>${titulo} · ${d.nombre} · ${fecha}</h2>
     <table><thead>${headers}</thead><tbody>${filas}</tbody></table>
     <div class="footer">▲ No cumple mínimo de PA/IP para el ranking · Generado el ${fecha}</div>
     <script>window.onload = () => { window.print(); }<\/script>
@@ -2802,49 +2851,154 @@ function descargarPDF(tipo) {
   win.document.close();
 }
 
-function exportarJSON() {
-  const data = { version:4, exportado:new Date().toISOString(), players, partidos, pitchers };
+function descargarArchivoJSON(data, nombreArchivo) {
   const blob = new Blob([JSON.stringify(data,null,2)], { type:"application/json" });
   const url  = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `wiffleball-${new Date().toISOString().slice(0,10)}.json`;
+  a.download = nombreArchivo;
   document.body.appendChild(a); a.click();
   document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function exportarJSON() {
+  const data = {
+    version:5, exportado:new Date().toISOString(),
+    temporadaActual: nombreTemporadaActual,
+    players, partidos, pitchers,
+    temporadas
+  };
+  descargarArchivoJSON(data, `wiffleball-${new Date().toISOString().slice(0,10)}.json`);
   toast("📤 Respaldo exportado");
 }
+
+// ---------- CERRAR TEMPORADA ----------
+// Descarga un respaldo, archiva la temporada en curso (solo lectura)
+// y deja la nueva con stats en cero, conservando la lista de jugadores.
+function cerrarTemporada() {
+  const nombreCierra = (document.getElementById("nombreTemporadaCierra").value || "").trim();
+  const nombreNueva  = (document.getElementById("nombreTemporadaNueva").value  || "").trim();
+  if (!nombreCierra) return toast("⚠️ Escribe el nombre de la temporada que cierras");
+  if (!nombreNueva)  return toast("⚠️ Escribe el nombre de la nueva temporada");
+  if (localStorage.getItem("estadoPartido"))
+    return toast("⚠️ Hay un partido en curso: guárdalo o descártalo antes de cerrar la temporada");
+  if (!partidos.length && !Object.keys(pitchers).length)
+    return toast("⚠️ La temporada en curso no tiene partidos");
+
+  confirmar(
+    "🏁 Cerrar temporada",
+    `Se descargará un respaldo y "${nombreCierra}" (${partidos.length} partidos) pasará a Temporadas anteriores. ` +
+    `"${nombreNueva}" empieza con las stats en cero y los mismos jugadores.`,
+    () => {
+      exportarJSON(); // respaldo de seguridad antes de tocar nada
+      temporadas.push({
+        nombre: nombreCierra,
+        cerrada: new Date().toISOString().slice(0,10),
+        numPartidos: partidos.length,
+        players:  JSON.parse(JSON.stringify(players)),
+        pitchers: JSON.parse(JSON.stringify(pitchers)),
+        partidos: JSON.parse(JSON.stringify(partidos))
+      });
+      Object.keys(players).forEach(n => players[n] = { total: Array(9).fill(0), juegos: [] });
+      pitchers = {};
+      partidos = [];
+      nombreTemporadaActual = nombreNueva;
+      temporadaVista = -1;
+      guardarStorage(); cargarSelects(); cargarTarjetaTemporadas();
+      document.getElementById("nombreTemporadaCierra").value = "";
+      document.getElementById("nombreTemporadaNueva").value  = "";
+      toast(`🏁 ${nombreCierra} cerrada · ¡Empieza ${nombreNueva}!`, 3500);
+    }
+  );
+}
+
+function cargarTarjetaTemporadas() {
+  const el = document.getElementById("temporadaEnCurso");
+  if (el) el.textContent = `${nombreTemporadaActual} · ${partidos.length} partido${partidos.length === 1 ? "" : "s"}`;
+  const lista = document.getElementById("listaTemporadas");
+  if (lista) lista.innerHTML = temporadas.length
+    ? temporadas.map(t => `<div class="temporada-item">📁 ${t.nombre}<span>${t.resumida ? "desde PDF" : (t.numPartidos ?? (t.partidos||[]).length) + " partidos"}${t.cerrada ? " · " + t.cerrada.split("-").reverse().join("-") : ""}</span></div>`).join("")
+    : "<p style='margin:4px 0 0'>Todavía no hay temporadas cerradas.</p>";
+}
+
+// ---------- IMPORTAR ----------
+let _importData = null;
 
 function importarJSON(event) {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
+    event.target.value = "";
     try {
       const data = JSON.parse(e.target.result);
       if (!data.players && !data.partidos) throw new Error();
-      if (!confirm("⚠️ Esto reemplazará todos los datos actuales. ¿Continuar?")) {
-        event.target.value=""; return;
-      }
-      players  = data.players  || {};
-      partidos = data.partidos || [];
-      pitchers = data.pitchers || {};
-      guardarStorage(); cargarSelects();
-      document.getElementById("importStatus").textContent =
-        `✅ ${Object.keys(players).length} jugadores, ${partidos.length} partidos importados`;
-      toast("✅ Datos importados");
+      _importData = data;
+      const nPart = (data.partidos || []).length;
+      const nJug  = Object.keys(data.players || {}).length;
+      document.getElementById("importResumen").textContent =
+        `${data.nombre ? data.nombre + " · " : ""}${nJug} jugadores, ${nPart} partidos` +
+        (data.resumida ? " (totales desde PDF)" : "") +
+        ((data.temporadas || []).length ? ` · incluye ${data.temporadas.length} temporada(s) anterior(es)` : "");
+      document.getElementById("importNombreTemporada").value = data.nombre || "";
+      document.getElementById("modalImportar").style.display = "flex";
     } catch {
       document.getElementById("importStatus").textContent = "❌ Archivo inválido";
       toast("❌ Error al importar");
     }
-    event.target.value="";
   };
   reader.readAsText(file);
 }
 
+function cerrarModalImportar() {
+  document.getElementById("modalImportar").style.display = "none";
+  _importData = null;
+}
+
+// modo: "reemplazar" (temporada en curso) | "anterior" (se agrega a Temporadas anteriores)
+function aplicarImportacion(modo) {
+  const data = _importData;
+  if (!data) return;
+  const status = document.getElementById("importStatus");
+
+  if (modo === "anterior") {
+    const nombre = (document.getElementById("importNombreTemporada").value || "").trim();
+    if (!nombre) return toast("⚠️ Escribe un nombre para la temporada");
+    exportarJSON(); // respaldo antes de tocar nada
+    temporadas.push({
+      nombre,
+      cerrada: data.cerrada || (data.exportado || "").slice(0,10) || new Date().toISOString().slice(0,10),
+      resumida: !!data.resumida,
+      numPartidos: data.numPartidos ?? (data.partidos || []).length,
+      players:  data.players  || {},
+      pitchers: data.pitchers || {},
+      partidos: data.partidos || [],
+      ...(data.record ? { record: data.record } : {})
+    });
+    guardarStorage();
+    status.textContent = `✅ "${nombre}" agregada a Temporadas anteriores (la temporada en curso no se tocó)`;
+    toast("✅ Temporada anterior agregada");
+  } else {
+    if (data.resumida) return toast("⚠️ Un archivo desde PDF solo se puede agregar como temporada anterior");
+    exportarJSON(); // respaldo antes de reemplazar
+    players  = data.players  || {};
+    partidos = data.partidos || [];
+    pitchers = data.pitchers || {};
+    if (Array.isArray(data.temporadas)) temporadas = data.temporadas; // respaldo completo (v5)
+    if (data.temporadaActual) nombreTemporadaActual = data.temporadaActual;
+    guardarStorage(); cargarSelects();
+    status.textContent = `✅ ${Object.keys(players).length} jugadores, ${partidos.length} partidos importados`;
+    toast("✅ Datos importados");
+  }
+  temporadaVista = -1;
+  cargarTarjetaTemporadas();
+  cerrarModalImportar();
+}
+
 function resetearTodo() {
   if (!confirm("⚠️ ¿Borrar TODOS los datos? Esta acción no se puede deshacer.")) return;
-  players={}; partidos=[]; pitchers={};
-  guardarStorage(); cargarSelects();
+  players={}; partidos=[]; pitchers={}; temporadas=[]; temporadaVista=-1;
+  guardarStorage(); cargarSelects(); cargarTarjetaTemporadas();
   toast("🗑 Datos borrados");
 }
 
