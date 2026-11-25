@@ -18,6 +18,12 @@ let temporadas = JSON.parse(localStorage.getItem("temporadas")) || [];
 let nombreTemporadaActual = localStorage.getItem("temporadaActual") || "Temporada actual";
 let temporadaVista = -1; // -1 = temporada actual; si no, índice en "temporadas"
 
+// Fondo de la liga: cuota por día jugado, % para el anotador y gastos.
+// No depende de la temporada: el saldo sigue al cerrar una temporada.
+const hoyISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+const FONDO_BASE = () => ({ cuota: 1000, pctAnotador: 25, exentos: ["JULIO CALERO"], inicio: hoyISO(), saldoInicial: 0, dias: {}, gastos: [] });
+let fondo = Object.assign(FONDO_BASE(), JSON.parse(localStorage.getItem("fondo")) || {});
+
 // Reglas de juego: máximo 5 entradas regulares + 2 extras = 7 entradas = 21 outs
 const MAX_OUTS  = 21;  // outs totales por partido
 const BASE_INN  = 5;   // innings base para ERA
@@ -38,6 +44,7 @@ function guardarStorage() {
   localStorage.setItem("pitchers", JSON.stringify(pitchers));
   localStorage.setItem("temporadas", JSON.stringify(temporadas));
   localStorage.setItem("temporadaActual", nombreTemporadaActual);
+  localStorage.setItem("fondo", JSON.stringify(fondo));
 }
 
 // ============================================================
@@ -190,13 +197,14 @@ function mostrarVista(vista, btn) {
 }
 
 function mostrarTabStats(tab, btn) {
-  ["tabBateo","tabPitcheoStats","tabPartidos","tabJugadores"]
+  ["tabBateo","tabPitcheoStats","tabPartidos","tabJugadores","tabFondo"]
     .forEach(id => document.getElementById(id).style.display = "none");
   document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
   if (btn) btn.classList.add("active");
-  const mapa = { bateo:"tabBateo", pitcheo:"tabPitcheoStats", partidos:"tabPartidos", jugadores:"tabJugadores" };
+  const mapa = { bateo:"tabBateo", pitcheo:"tabPitcheoStats", partidos:"tabPartidos", jugadores:"tabJugadores", fondo:"tabFondo" };
   document.getElementById(mapa[tab]).style.display = "block";
   if (tab === "jugadores") cargarEditorJugadores();
+  if (tab === "fondo") cargarFondo();
 }
 
 // ============================================================
@@ -2698,6 +2706,209 @@ function cargarStatsPartidos() {
   });
 }
 
+// ============================================================
+// FONDO — cada jugador que juega un día aporta la cuota (1.000 CLP).
+// El anotador del día recibe un % de lo recaudado. Los que solo van
+// a mirar no aparecen en ningún partido, así que no deben nada.
+// ============================================================
+const clp = n => "$" + Math.round(n || 0).toLocaleString("es-CL");
+const fmtFecha = d => d.split("-").reverse().join("-");
+const escAttr = t => String(t).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+
+// Días de juego (desde el inicio del fondo) → jugadores que aparecieron en algún partido ese día
+function jugadoresPorDiaFondo() {
+  const todos = [...partidos, ...temporadas.flatMap(t => t.partidos || [])];
+  const dias = {};
+  todos.forEach(p => {
+    const dia = diaDePartido(p);
+    if (!dia || dia < fondo.inicio) return;
+    if (!dias[dia]) dias[dia] = new Set();
+    (p.jugadores || []).forEach(j => j.nombre && dias[dia].add(j.nombre));
+  });
+  return dias;
+}
+
+function diaFondo(dia) {
+  if (!fondo.dias[dia]) fondo.dias[dia] = { pagos: {}, agregados: [], quitados: [], anotador: "" };
+  return fondo.dias[dia];
+}
+
+function resumenFondo() {
+  const porDia = jugadoresPorDiaFondo();
+  Object.keys(fondo.dias).forEach(d => { if (d >= fondo.inicio && !porDia[d]) porDia[d] = new Set(); });
+  const dias = Object.keys(porDia).sort().reverse().map(dia => {
+    const reg = fondo.dias[dia] || { pagos: {}, agregados: [], quitados: [], anotador: "" };
+    const nombres = [...new Set([...porDia[dia], ...(reg.agregados || [])])]
+      .filter(n => !(reg.quitados || []).includes(n)).sort();
+    const filas = nombres.map(n => ({ nombre: n, exento: fondo.exentos.includes(n), pago: !!reg.pagos[n] }));
+    const deben     = filas.filter(f => !f.exento);
+    const pagaron   = deben.filter(f => f.pago).length;
+    const recaudado = pagaron * fondo.cuota;
+    const anotador  = Math.round(recaudado * fondo.pctAnotador / 100);
+    return { dia, reg, filas, deben: deben.length, pagaron, esperado: deben.length * fondo.cuota,
+             recaudado, anotador, alFondo: recaudado - anotador };
+  });
+  const deudas = {};
+  dias.forEach(d => d.filas.forEach(f => {
+    if (f.exento || f.pago) return;
+    if (!deudas[f.nombre]) deudas[f.nombre] = { monto: 0, dias: [] };
+    deudas[f.nombre].monto += fondo.cuota;
+    deudas[f.nombre].dias.push(d.dia);
+  }));
+  const ingresos = dias.reduce((s, d) => s + d.alFondo, 0);
+  const gastos   = fondo.gastos.reduce((s, g) => s + (g.monto || 0), 0);
+  return { dias, deudas, ingresos, gastos, saldo: (fondo.saldoInicial || 0) + ingresos - gastos,
+           anotadores: dias.reduce((s, d) => s + d.anotador, 0) };
+}
+
+function cargarFondo() {
+  const cont = document.getElementById("fondoContenido");
+  if (!cont) return;
+  const r = resumenFondo();
+  const deudores = Object.entries(r.deudas).sort((a, b) => b[1].monto - a[1].monto);
+  const opcionesJug = Object.keys(players).sort().map(n => `<option value="${escAttr(n)}">`).join("");
+
+  cont.innerHTML = `
+    <datalist id="fondoListaJugadores">${opcionesJug}</datalist>
+
+    <div class="fondo-card fondo-saldo">
+      <div class="fondo-saldo-label">Saldo del fondo</div>
+      <div class="fondo-saldo-monto ${r.saldo < 0 ? "negativo" : ""}">${clp(r.saldo)}</div>
+      <div class="fondo-saldo-det">
+        Entró al fondo ${clp(r.ingresos)} · Gastos ${clp(r.gastos)}${fondo.saldoInicial ? ` · Saldo inicial ${clp(fondo.saldoInicial)}` : ""}<br>
+        Pagado a anotadores: ${clp(r.anotadores)}
+      </div>
+    </div>
+
+    <div class="fondo-card">
+      <div class="fondo-titulo">🧾 Deudas</div>
+      ${deudores.length ? deudores.map(([n, d]) => `
+        <div class="fondo-deuda"><span>${n}</span><span>${clp(d.monto)} <small>(${d.dias.map(fmtFecha).join(", ")})</small></span></div>`).join("")
+        : "<p class='fondo-vacio'>Nadie debe 🎉</p>"}
+    </div>
+
+    <div class="fondo-titulo fondo-seccion">📅 Días de juego</div>
+    ${r.dias.length ? r.dias.map(d => `
+      <div class="fondo-card fondo-dia" data-dia="${d.dia}">
+        <div class="fondo-dia-head">
+          <strong>${fmtFecha(d.dia)}</strong>
+          <span>${d.pagaron}/${d.deben} pagaron</span>
+        </div>
+        ${d.filas.map(f => `
+          <label class="fondo-jug ${f.exento ? "exento" : ""}">
+            ${f.exento ? `<span class="fondo-check-x">—</span>` : `<input type="checkbox" data-pago="${escAttr(f.nombre)}" ${f.pago ? "checked" : ""}>`}
+            <span class="fondo-jug-nombre">${f.nombre}</span>
+            <span class="fondo-jug-monto">${f.exento ? "exento" : clp(fondo.cuota)}</span>
+            <button type="button" class="fondo-quitar" data-quitar="${escAttr(f.nombre)}" title="Quitar de este día">✕</button>
+          </label>`).join("")}
+        <div class="fondo-fila-form">
+          <input type="text" list="fondoListaJugadores" class="fondo-input" data-agregar placeholder="+ Agregar jugador que jugó">
+          <button type="button" class="fondo-btn" data-agregar-btn>Agregar</button>
+        </div>
+        <div class="fondo-fila-form">
+          <span class="fondo-label">✏️ Anotó:</span>
+          <input type="text" list="fondoListaJugadores" class="fondo-input" data-anotador value="${escAttr(d.reg.anotador || "")}" placeholder="Nombre del anotador">
+        </div>
+        <div class="fondo-dia-total">
+          Recaudado <strong>${clp(d.recaudado)}</strong> de ${clp(d.esperado)} ·
+          Anotador ${fondo.pctAnotador}%: <strong>${clp(d.anotador)}</strong>${d.reg.anotador ? ` (${d.reg.anotador})` : ""} ·
+          Al fondo: <strong>${clp(d.alFondo)}</strong>
+        </div>
+      </div>`).join("")
+      : `<p class="fondo-vacio">Todavía no hay días de juego desde el ${fmtFecha(fondo.inicio)}.<br>Cuando guardes un partido, ese día aparece aquí con sus jugadores.</p>`}
+
+    <div class="fondo-card">
+      <div class="fondo-titulo">🛒 Gastos</div>
+      <div class="fondo-fila-form">
+        <input type="date" class="fondo-input" id="gastoFecha" value="${hoyISO()}" style="flex:0 0 140px">
+        <input type="number" class="fondo-input" id="gastoMonto" placeholder="Monto" min="0" step="100" style="flex:0 0 100px">
+      </div>
+      <div class="fondo-fila-form">
+        <input type="text" class="fondo-input" id="gastoDesc" placeholder="Descripción (ej: pelotas)">
+        <button type="button" class="fondo-btn" onclick="agregarGastoFondo()">+ Gasto</button>
+      </div>
+      ${fondo.gastos.length ? [...fondo.gastos].sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")).map(g => `
+        <div class="fondo-gasto">
+          <span>${g.fecha ? fmtFecha(g.fecha) : ""} · ${g.desc}</span>
+          <span>${clp(g.monto)} <button type="button" class="fondo-quitar" onclick="eliminarGastoFondo('${g.id}')">✕</button></span>
+        </div>`).join("") : "<p class='fondo-vacio'>Sin gastos registrados</p>"}
+    </div>
+
+    <details class="fondo-card fondo-config">
+      <summary>⚙️ Configuración del fondo</summary>
+      <div class="fondo-fila-form"><span class="fondo-label">Cuota por día</span><input type="number" class="fondo-input" id="cfgCuota" value="${fondo.cuota}" min="0" step="100"></div>
+      <div class="fondo-fila-form"><span class="fondo-label">% anotador</span><input type="number" class="fondo-input" id="cfgPct" value="${fondo.pctAnotador}" min="0" max="100"></div>
+      <div class="fondo-fila-form"><span class="fondo-label">Exentos</span><input type="text" class="fondo-input" id="cfgExentos" value="${escAttr(fondo.exentos.join(", "))}" placeholder="Nombres separados por coma"></div>
+      <div class="fondo-fila-form"><span class="fondo-label">Desde el día</span><input type="date" class="fondo-input" id="cfgInicio" value="${fondo.inicio}"></div>
+      <div class="fondo-fila-form"><span class="fondo-label">Saldo inicial</span><input type="number" class="fondo-input" id="cfgSaldo" value="${fondo.saldoInicial || 0}" step="100"></div>
+      <button type="button" class="fondo-btn" style="width:100%" onclick="guardarConfigFondo()">Guardar configuración</button>
+    </details>
+  `;
+
+  // Eventos de cada día
+  cont.querySelectorAll(".fondo-dia").forEach(card => {
+    const dia = card.dataset.dia;
+    card.querySelectorAll("[data-pago]").forEach(chk => chk.addEventListener("change", () => {
+      const reg = diaFondo(dia);
+      if (chk.checked) reg.pagos[chk.dataset.pago] = true; else delete reg.pagos[chk.dataset.pago];
+      guardarStorage(); cargarFondo();
+    }));
+    card.querySelectorAll("[data-quitar]").forEach(btn => btn.addEventListener("click", e => {
+      e.preventDefault();
+      const n = btn.dataset.quitar, reg = diaFondo(dia);
+      confirmar("Quitar del día", `¿${n} no jugó el ${fmtFecha(dia)}? Se quita de la lista de ese día.`, () => {
+        reg.agregados = (reg.agregados || []).filter(x => x !== n);
+        if (!reg.quitados.includes(n)) reg.quitados.push(n);
+        delete reg.pagos[n];
+        guardarStorage(); cargarFondo();
+      });
+    }));
+    const inpAgr = card.querySelector("[data-agregar]");
+    card.querySelector("[data-agregar-btn]").addEventListener("click", () => {
+      const n = (inpAgr.value || "").trim().toUpperCase();
+      if (!n) return toast("⚠️ Escribe el nombre");
+      const reg = diaFondo(dia);
+      reg.quitados = (reg.quitados || []).filter(x => x !== n);
+      if (!reg.agregados.includes(n)) reg.agregados.push(n);
+      guardarStorage(); cargarFondo();
+    });
+    card.querySelector("[data-anotador]").addEventListener("change", e => {
+      diaFondo(dia).anotador = (e.target.value || "").trim().toUpperCase();
+      guardarStorage(); cargarFondo();
+    });
+  });
+}
+
+function agregarGastoFondo() {
+  const monto = parseInt(document.getElementById("gastoMonto").value) || 0;
+  const desc  = (document.getElementById("gastoDesc").value || "").trim();
+  const fecha = document.getElementById("gastoFecha").value || hoyISO();
+  if (monto <= 0) return toast("⚠️ Escribe el monto del gasto");
+  if (!desc)      return toast("⚠️ Escribe en qué se gastó");
+  fondo.gastos.push({ id: Date.now().toString(36), fecha, desc, monto });
+  guardarStorage(); cargarFondo();
+  toast(`🛒 Gasto registrado: ${clp(monto)}`);
+}
+
+function eliminarGastoFondo(id) {
+  const g = fondo.gastos.find(x => x.id === id);
+  if (!g) return;
+  confirmar("Eliminar gasto", `¿Eliminar "${g.desc}" por ${clp(g.monto)}?`, () => {
+    fondo.gastos = fondo.gastos.filter(x => x.id !== id);
+    guardarStorage(); cargarFondo();
+  });
+}
+
+function guardarConfigFondo() {
+  fondo.cuota        = Math.max(0, parseInt(document.getElementById("cfgCuota").value) || 0);
+  fondo.pctAnotador  = Math.min(100, Math.max(0, parseFloat(document.getElementById("cfgPct").value) || 0));
+  fondo.exentos      = (document.getElementById("cfgExentos").value || "").split(",").map(x => x.trim().toUpperCase()).filter(Boolean);
+  fondo.inicio       = document.getElementById("cfgInicio").value || fondo.inicio;
+  fondo.saldoInicial = parseInt(document.getElementById("cfgSaldo").value) || 0;
+  guardarStorage(); cargarFondo();
+  toast("✅ Configuración del fondo guardada");
+}
+
 // Modal de confirmación propio (evita bloqueo de window.confirm en Safari/WebView)
 function confirmar(titulo, mensaje, onOk) {
   const modal = document.getElementById("modalConfirm");
@@ -2866,7 +3077,8 @@ function exportarJSON() {
     version:5, exportado:new Date().toISOString(),
     temporadaActual: nombreTemporadaActual,
     players, partidos, pitchers,
-    temporadas
+    temporadas,
+    fondo
   };
   descargarArchivoJSON(data, `wiffleball-${new Date().toISOString().slice(0,10)}.json`);
   toast("📤 Respaldo exportado");
@@ -2986,6 +3198,7 @@ function aplicarImportacion(modo) {
     pitchers = data.pitchers || {};
     if (Array.isArray(data.temporadas)) temporadas = data.temporadas; // respaldo completo (v5)
     if (data.temporadaActual) nombreTemporadaActual = data.temporadaActual;
+    if (data.fondo) fondo = Object.assign(FONDO_BASE(), data.fondo);
     guardarStorage(); cargarSelects();
     status.textContent = `✅ ${Object.keys(players).length} jugadores, ${partidos.length} partidos importados`;
     toast("✅ Datos importados");
@@ -2997,7 +3210,7 @@ function aplicarImportacion(modo) {
 
 function resetearTodo() {
   if (!confirm("⚠️ ¿Borrar TODOS los datos? Esta acción no se puede deshacer.")) return;
-  players={}; partidos=[]; pitchers={}; temporadas=[]; temporadaVista=-1;
+  players={}; partidos=[]; pitchers={}; temporadas=[]; temporadaVista=-1; fondo=FONDO_BASE();
   guardarStorage(); cargarSelects(); cargarTarjetaTemporadas();
   toast("🗑 Datos borrados");
 }
@@ -3022,6 +3235,9 @@ if (Object.keys(players).length === 0) {
   });
   guardarStorage();
 }
+
+// El fondo cuenta desde el primer día que se abre esta versión: fijar esa fecha de inicio
+if (!localStorage.getItem("fondo")) localStorage.setItem("fondo", JSON.stringify(fondo));
 
 cargarSelects();
 actualizarMarcadorUI();

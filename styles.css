@@ -2041,3 +2041,60 @@ button:active { opacity: 0.75; transform: scale(0.97); }
   font-weight: 600;
 }
 .temporada-item span { color: var(--suave); font-weight: 400; font-size: 12px; }
+
+/* FONDO — cuotas por día, anotador y gastos */
+.tabs-stats { flex-wrap: wrap; }
+#fondoContenido { padding: 0 12px 20px; font-family: 'Barlow Condensed', sans-serif; }
+.fondo-card {
+  background: var(--blanco);
+  margin: 8px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border-left: 3px solid var(--acento);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+.fondo-saldo { text-align: center; border-left-color: var(--acento2); }
+.fondo-saldo-label { font-size: 12px; color: var(--suave); text-transform: uppercase; letter-spacing: .05em; }
+.fondo-saldo-monto { font-family: 'Bebas Neue', sans-serif; font-size: 40px; color: var(--acento); line-height: 1.1; }
+.fondo-saldo-monto.negativo { color: var(--marca); }
+.fondo-saldo-det { font-size: 12px; color: var(--suave); }
+.fondo-titulo { font-size: 15px; font-weight: 700; color: var(--texto); margin-bottom: 6px; }
+.fondo-seccion { margin: 14px 0 0; }
+.fondo-vacio { font-size: 13px; color: var(--suave); margin: 4px 0; }
+.fondo-deuda, .fondo-gasto {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 5px 0; border-top: 1px solid #edeae4; font-size: 14px;
+}
+.fondo-deuda span:first-child { font-weight: 700; }
+.fondo-deuda span:last-child { color: var(--marca); font-weight: 700; text-align: right; }
+.fondo-deuda small { color: var(--suave); font-weight: 400; }
+.fondo-dia-head { display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 4px; }
+.fondo-dia-head span { color: var(--suave); font-size: 13px; }
+.fondo-jug {
+  display: grid; grid-template-columns: 26px 1fr auto 24px; align-items: center; gap: 6px;
+  padding: 6px 0; border-top: 1px solid #edeae4; font-size: 14px; cursor: pointer;
+}
+.fondo-jug input[type=checkbox] {
+  -webkit-appearance: checkbox; appearance: auto;
+  width: 22px; height: 22px; margin: 0; padding: 0; accent-color: var(--acento);
+}
+.fondo-jug-nombre { font-weight: 600; }
+.fondo-jug-monto { color: var(--suave); font-size: 13px; }
+.fondo-jug.exento .fondo-jug-monto { font-style: italic; }
+.fondo-check-x { text-align: center; color: var(--suave); }
+.fondo-quitar { background: none; border: none; color: #c9c3b8; font-size: 13px; padding: 2px; width: auto; cursor: pointer; }
+.fondo-fila-form { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.fondo-label { font-size: 13px; color: var(--suave); white-space: nowrap; min-width: 90px; }
+.fondo-input {
+  flex: 1; min-width: 0; padding: 8px 9px; font-size: 14px;
+  border: 1px solid var(--borde); border-radius: 8px; background: var(--crema);
+}
+.fondo-btn {
+  padding: 8px 12px; font-size: 13px; font-weight: 700; width: auto;
+  border: none; border-radius: 8px; background: var(--acento); color: var(--blanco); cursor: pointer;
+}
+.fondo-dia-total {
+  margin-top: 10px; padding: 8px 10px; border-radius: 8px;
+  background: #eef0e8; font-size: 13px; color: var(--texto); line-height: 1.5;
+}
+.fondo-config summary { font-size: 14px; font-weight: 700; cursor: pointer; }
