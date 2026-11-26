@@ -1491,8 +1491,11 @@ function actualizarOPSFila(fila, stats) {
   const H = s[0]+s[1]+s[2]+s[3], BB = s[4], AB = H+s[5]+s[6];
   const TB = s[0]+2*s[1]+3*s[2]+4*s[3];
   const OPS = (AB+BB) ? ((H+BB)/(AB+BB) + (AB ? TB/AB : 0)).toFixed(3) : ".000";
+  const AVE = AB ? (H/AB).toFixed(3) : ".000";
   const tdOps = fila.querySelector(".td-ops");
   if (tdOps) tdOps.textContent = OPS;
+  const tdAve = fila.querySelector(".td-ave");
+  if (tdAve) tdAve.textContent = AVE;
 }
 
 function deshacerUltimaJugada() {
