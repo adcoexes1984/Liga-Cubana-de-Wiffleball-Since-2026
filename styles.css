@@ -2098,3 +2098,7 @@ button:active { opacity: 0.75; transform: scale(0.97); }
   background: #eef0e8; font-size: 13px; color: var(--texto); line-height: 1.5;
 }
 .fondo-config summary { font-size: 14px; font-weight: 700; cursor: pointer; }
+.fondo-aviso {
+  margin: 6px 0; padding: 8px 10px; border-radius: 8px;
+  background: #fbf1e4; color: var(--acento2); font-size: 13px; line-height: 1.4;
+}

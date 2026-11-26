@@ -522,6 +522,7 @@ function iniciarJuego() {
   if (!pitcherActivo.visitante?.nombre)
     return toast("⚠️ Designa el pitcher del equipo VISITANTE (lanza vs Local)");
 
+  ponerFechaHoySiVacia();
   lineupPos = { visitante: 0, local: 0 };
   marcador = { inning: 1, outs: 0, turno: "visitante", ultimoOut: null, ultimoOutPorEquipo: {} };
   actualizarMarcadorUI();
@@ -1935,7 +1936,7 @@ function guardarPartido() {
 }
 
 function _guardarPartidoImpl() {
-  const fecha     = document.getElementById("fecha").value || "Sin fecha";
+  const fecha     = document.getElementById("fecha").value || hoyISO(); // sin fecha el día no aparece en el Fondo
   const hora      = document.getElementById("hora")?.value || "";
   const fechaHora = hora ? `${fecha} ${hora}` : fecha;
   const localNom  = document.getElementById("local").value || "Local";
@@ -2716,6 +2717,13 @@ const fmtFecha = d => d.split("-").reverse().join("-");
 const escAttr = t => String(t).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
 // Días de juego (desde el inicio del fondo) → jugadores que aparecieron en algún partido ese día
+// Partidos de la temporada en curso que el Fondo no cuenta (sin fecha o anteriores al inicio)
+function partidosFueraDelFondo() {
+  const sinFecha = partidos.filter(p => !diaDePartido(p)).length;
+  const antes    = partidos.filter(p => { const d = diaDePartido(p); return d && d < fondo.inicio; }).length;
+  return { sinFecha, antes };
+}
+
 function jugadoresPorDiaFondo() {
   const todos = [...partidos, ...temporadas.flatMap(t => t.partidos || [])];
   const dias = {};
@@ -2788,6 +2796,9 @@ function cargarFondo() {
     </div>
 
     <div class="fondo-titulo fondo-seccion">📅 Días de juego</div>
+    ${(() => { const f = partidosFueraDelFondo(); return (f.sinFecha || f.antes) ? `<div class="fondo-aviso">
+      ⚠️ ${f.sinFecha ? `${f.sinFecha} partido(s) guardado(s) <strong>sin fecha</strong>` : ""}${f.sinFecha && f.antes ? " y " : ""}${f.antes ? `${f.antes} partido(s) con fecha <strong>anterior al ${fmtFecha(fondo.inicio)}</strong>` : ""} no se cuentan en el fondo.
+      ${f.antes ? "Si deben contar, cambia «Desde el día» en ⚙️ Configuración." : ""}</div>` : ""; })()}
     ${r.dias.length ? r.dias.map(d => `
       <div class="fondo-card fondo-dia" data-dia="${d.dia}">
         <div class="fondo-dia-head">
@@ -3235,6 +3246,13 @@ if (Object.keys(players).length === 0) {
   });
   guardarStorage();
 }
+
+// La fecha del partido parte en el día de hoy (se puede cambiar a mano)
+function ponerFechaHoySiVacia() {
+  const f = document.getElementById("fecha");
+  if (f && !f.value) f.value = hoyISO();
+}
+ponerFechaHoySiVacia();
 
 // El fondo cuenta desde el primer día que se abre esta versión: fijar esa fecha de inicio
 if (!localStorage.getItem("fondo")) localStorage.setItem("fondo", JSON.stringify(fondo));
