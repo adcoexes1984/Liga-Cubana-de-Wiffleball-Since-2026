@@ -335,8 +335,11 @@ function agregarJugadorDesdeLista(equipo) {
   const tbody = document.querySelector(
     equipo === "local" ? "#tablaLocal tbody" : "#tablaVisitante tbody"
   );
-  if ([...tbody.querySelectorAll("tr")].some(tr => tr.children[0].textContent === nombre))
-    return toast("⚠️ Jugador ya está en este juego");
+  const otroId = equipo === "local" ? "#tablaVisitante" : "#tablaLocal";
+  if ([...tbody.querySelectorAll("tr[data-nombre]")].some(tr => tr.dataset.nombre === nombre))
+    return toast("⚠️ Jugador ya está en este equipo");
+  if ([...document.querySelectorAll(`${otroId} tbody tr[data-nombre]`)].some(tr => tr.dataset.nombre === nombre))
+    return toast(`⚠️ ${nombre} ya está en el equipo ${equipo === "local" ? "visitante" : "local"}`);
 
   const tr = crearFilaBateador(nombre);
   tbody.appendChild(tr);
@@ -502,9 +505,9 @@ function nuevoPartidoSinGuardar() {
     "¿Descartar el partido en curso? Las estadísticas no se guardarán.",
     () => {
       limpiarEstadoPartido();
-      resetJuego();
+      resetJuego(editandoIdx < 0); // misma alineación, salvo que se estuviera editando
       cargarSelects();
-      toast("🗑 Partido descartado — listo para nuevo partido");
+      toast("🗑 Partido descartado — misma alineación lista para el siguiente");
     }
   );
 }
@@ -789,12 +792,12 @@ function mostrarGanador(equipo, cV, cL, momento) {
 function cerrarFinPartido(guardar) {
   document.getElementById("modalFinPartido").style.display = "none";
   if (guardar) {
-    guardarPartido(); // guarda stats y hace reset completo automáticamente
+    guardarPartido(); // guarda stats y deja la misma alineación para el siguiente
   } else {
     limpiarEstadoPartido();
-    resetJuego();
+    resetJuego(editandoIdx < 0);
     cargarSelects();
-    toast("🗑 Partido descartado — listo para nuevo partido");
+    toast("🗑 Partido descartado — misma alineación lista para el siguiente");
   }
 }
 
@@ -2033,12 +2036,13 @@ function _guardarPartidoImpl() {
     toast("✅ Partido actualizado");
   } else {
     partidos.push(partido);
-    toast("✅ Partido guardado");
+    toast("✅ Partido guardado — misma alineación lista para el siguiente", 3000);
   }
 
+  const eraEdicion = editandoIdx >= 0;
   guardarStorage();
   limpiarEstadoPartido(); // ya no hay partido en curso
-  resetJuego();
+  resetJuego(!eraEdicion); // siguiente partido con la misma alineación
   cargarSelects();
 }
 
@@ -2145,7 +2149,18 @@ function cancelarEdicion() {
 // ============================================================
 // RESET JUEGO
 // ============================================================
-function resetJuego() {
+// mantenerAlineacion: para el siguiente partido quedan los mismos jugadores
+// (sin los que salieron por sustitución), con stats en cero, y los mismos
+// capitanes y pitchers. Todo se puede cambiar antes de "Iniciar juego".
+function resetJuego(mantenerAlineacion = false) {
+  const alineacion = mantenerAlineacion ? {
+    visitante: [...document.querySelectorAll(`#tablaVisitante ${FILAS_LINEUP}`)].map(tr => tr.dataset.nombre),
+    local:     [...document.querySelectorAll(`#tablaLocal ${FILAS_LINEUP}`)].map(tr => tr.dataset.nombre),
+    capLocal:  document.getElementById("local")?.value || "",
+    capVisit:  document.getElementById("visitante")?.value || "",
+    pitchers:  { ...pitcherActivo }
+  } : null;
+
   document.querySelector("#tablaVisitante tbody").innerHTML = "";
   document.querySelector("#tablaLocal tbody").innerHTML = "";
 
@@ -2179,6 +2194,20 @@ function resetJuego() {
   const _nb = document.getElementById("btnNuevoPartido"); if (_nb) _nb.style.display = "none";
   document.getElementById("btnIniciarJuego").style.display = "block";
   editandoIdx = -1;
+
+  if (alineacion) {
+    alineacion.visitante.forEach(n => document.querySelector("#tablaVisitante tbody").appendChild(crearFilaBateador(n)));
+    alineacion.local.forEach(n => document.querySelector("#tablaLocal tbody").appendChild(crearFilaBateador(n)));
+    if (localEl) localEl.value = alineacion.capLocal;
+    if (visitEl) visitEl.value = alineacion.capVisit;
+    // Pitchers: se mantienen si siguen en la alineación de su equipo
+    ["local", "visitante"].forEach(eq => {
+      const p = alineacion.pitchers[eq];
+      if (p && alineacion[eq].includes(p.nombre)) pitcherActivo[eq] = { nombre: p.nombre };
+    });
+    actualizarPitcherActivoUI();
+    actualizarMarcadorUI();
+  }
 }
 
 // ============================================================
